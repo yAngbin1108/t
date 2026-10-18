@@ -3,49 +3,28 @@ name: Build RepoPocket
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # 允许你手动点击运行
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Unzip Source Code
-        run: |
-          unzip -q RepoPocket-repo-root.zip -d extracted_source
-          echo "====== 📁 检查解压后的文件结构 ======"
-          ls -la extracted_source
+      - name: Unzip Source
+        run: unzip -q RepoPocket-repo-root.zip -d source_code
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Generate Xcode Project
+      - name: Generate Project
         run: |
-          # 兼容解压出来有没有外壳文件夹的情况
-          if [ -d "extracted_source/RepoPocket" ]; then
-            cd extracted_source
-          else
-            cd extracted_source/RepoPocket-repo-root
-          fi
-          
+          cd source_code
           xcodegen generate
-          
-          echo "====== 📁 检查生成的工程文件 ======"
-          ls -la
-          
-          echo "====== 🎯 检查可用的 Scheme（非常重要） ======"
           xcodebuild -list
 
       - name: Build App
         run: |
-          if [ -d "extracted_source/RepoPocket" ]; then
-            cd extracted_source
-          else
-            cd extracted_source/RepoPocket-repo-root
-          fi
-          
-          # 注意：这里必须对应上面查出来的 Scheme 名字
+          cd source_code
           xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO build
