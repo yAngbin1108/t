@@ -1,10 +1,32 @@
-name: Build RepoPocket IPA
+name: Build IPA
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - 'RepoPocket-repo-root.zip'
+    inputs:
+      fork_people_only:
+        description: Build the alternative fork people view
+        type: boolean
+        required: false
+        default: false
+      validate_only:
+        description: Run tests and compile iOS without packaging an IPA
+        type: boolean
+        required: false
+        default: false
+      style_preview:
+        description: Render fixed-data simulator style screenshots
+        type: boolean
+        required: false
+        default: false
+      build_update_probe:
+        description: Build an optional 1.0.3-rc.1 IPA for testing update handoff
+        type: boolean
+        required: false
+        default: false
+      share_group:
+        description: 'App Group to bake into the signature for re-signed installs, e.g. group.AB12CD34EF.com.wm0104.RepoPocket.shared (leave empty for the TrollStore default)'
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -12,56 +34,156 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-
-      - name: Select Xcode 15.4 (project targets xcodegen xcode15_3, iOS 16)
+      - name: Select Xcode 15.4
         run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
-
-      - name: Unpack source archive into repository root
-        run: |
-          set -euo pipefail
-          test -f RepoPocket-repo-root.zip
-          unzip -q -o RepoPocket-repo-root.zip
-          test -f project.yml
-          test -f Scripts/build_native_git.sh
-          test -d RepoPocket
-          echo "--- unpacked ---"
-          ls
-
-      - name: Cache native Git libraries
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: NativeBuild
           key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
-
       - name: Prepare native Git libraries
         run: |
           bash Scripts/build_native_git.sh macosx
           bash Scripts/build_native_git.sh iphoneos
-
+      - name: Test native local Git backend
+        run: python3 Tests/test_local_git_native.py
+      - name: Test original-folder persistence and editing
+        run: python3 Tests/test_local_git_store.py
+      - name: Test local project page lifecycle
+        run: python3 Tests/test_local_git_ui.py
+      - name: Test language-aware code and automatic text reading
+        run: python3 Tests/test_source_code.py
+      - name: Test build workflow entry points
+        run: python3 Tests/test_build_workflow.py
+      - name: Test community reads, pagination, filters and OAuth rules
+        run: python3 Tests/test_community.py
+      - name: Test share inbox and repository social navigation
+        run: python3 Tests/test_share_social.py
+      - name: Test native collaboration transport, scoped statistics and README folding
+        run: python3 Tests/test_native_repository.py
+      - name: Test README rendering, badge document and raw format fallback
+        run: python3 Tests/test_readme_rendering.py
+      - name: Test original baseline historic commit and disk download regressions
+        run: python3 Tests/test_workspace_baseline.py
+      - name: Test production local checkbox and strict commit eligibility
+        run: python3 Tests/test_local_selection.py
+      - name: Test scanner, selective commit and three-way pull
+        run: python3 Tests/test_local_store.py
+      - name: Test linked original folders, bookmark restore and exact deletion
+        run: python3 Tests/test_linked_workspaces.py
+      - name: Test ZIPFoundation safe extraction
+        run: python3 Tests/test_workspace_zip.py
+      - name: Test deb control editor
+        run: sh DebControlEditorTests/run-macos.sh
+      - name: Test deb UI lifecycle and commit feedback
+        run: python3 Tests/test_deb_ui_static.py
+      - name: Test workspace and TrollFools UI contracts
+        run: python3 Tests/test_workspace_troll_static.py
+      - name: Test queue and streamed blob core
+        run: python3 Tests/test_repo_queue.py
+      - name: Test metadata-only plugin editing
+        run: python3 Tests/test_troll_metadata.py
+      - name: Test owned repository description editing and inert scroll behavior
+        run: python3 Tests/test_repository_description.py
+      - name: Test repository deletion with network-free mocks and account management
+        run: python3 Tests/test_repository_deletion.py
+      - name: Test manual update SemVer and transient notice contracts
+        run: python3 Tests/test_app_update.py
+      - name: Test production update notice lifecycle mocks
+        run: python3 Tests/test_update_notice.py
+      - name: Test dynamic update group boundaries and production Swift corner geometry
+        run: python3 Tests/test_update_groups.py
+      - name: Test production GitHub repository links and shared input contracts
+        run: python3 Tests/test_repository_input.py
+      - name: Test repository menu canonical links and isolated fork mocks
+        run: python3 Tests/test_repository_copy_link.py
+      - name: Test existing fork status and account isolation
+        run: python3 Tests/test_repository_fork_status.py
+      - name: Test production star state and account guards with network-free mocks
+        run: python3 Tests/test_repository_star.py
+      - name: Test repository statistics and legacy decoding
+        run: python3 Tests/test_repository_statistics.py
+      - name: Test multi-account isolation and avatar repository models
+        run: python3 Tests/test_accounts.py
+      - name: Test Desktop history, diff and branches
+        run: python3 Tests/test_desktop.py
+      - name: Test selection lifecycle, refresh and landscape contracts
+        run: python3 Tests/test_selection_lifecycle.py
+      - name: Test equal-width cards and soft grouped UI
+        run: python3 Tests/test_soft_groups.py
+      - name: Test always-visible repository list contracts
+        run: python3 Tests/test_repository_disclosure.py
+      - name: Test persistent downloads, cache whitelist and account lifecycle mocks
+        run: python3 Tests/test_download_store.py
+      - name: Test UTF-8 workspace ZIP entry names
+        run: python3 Tests/test_zip_filename_encoding.py
+      - name: Test foreground inertness and operation guards
+        run: python3 Tests/test_manual_refresh.py
+      - name: Test workspace keyboard focus and submit contracts
+        run: python3 Tests/test_workspace_keyboard.py
+      - name: Test document picker identity and cancellation contracts
+        run: python3 Tests/test_workspace_picker.py
+      - name: Test iOS 17.5 sideload file-picker route keeps native presentation only
+        run: python3 Tests/test_file_importer_free.py
+      - name: Test App Group resolution for re-signed share inbox installs
+        run: python3 Tests/test_share_inbox_group.py
+      - name: Test folding search history and fail-closed permissions
+        run: python3 Tests/test_folding_search_safety.py
+      - name: Test repository UI performance and parent cache contracts
+        run: python3 Tests/test_repository_ui_performance.py
+      - name: Test restored Browser navigation without repository release requests
+        run: python3 Tests/test_browser_no_releases.py
+      - name: Test lazy directory navigation contract
+        run: python3 Tests/test_lazy_directory_navigation.py
+      - name: Test local diff production model and preview contracts
+        run: python3 Tests/test_local_diff.py
+      - name: Test bounded release management and commit patch parser
+        run: python3 Tests/test_release_management.py
+      - name: Test final publishing and update session production models
+        run: python3 Tests/test_final_publish.py
+      - name: Test TrollStore install encoding, fallbacks and update probe eligibility
+        run: python3 Tests/test_trollstore_update.py
+      - name: Test repository page request lifetime and approved interface changes
+        run: python3 Tests/test_repository_page_lifecycle.py
+      - name: Test Swift source structure before compiling
+        run: python3 Tests/test_swift_structure.py
       - name: Generate Xcode project
         run: |
           brew install xcodegen
           xcodegen generate
-
+      # Runs before signing so the group lands in the code signature, which is the only place iOS
+      # checks. A no-op when share_group is empty, keeping the TrollStore default untouched.
+      - name: Retarget App Group for re-signed builds
+        if: ${{ inputs.share_group != '' }}
+        run: bash Scripts/set_share_group.sh "${{ inputs.share_group }}"
       - name: Compile iOS app
         run: |
           set -o pipefail
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket \
-            -configuration Release -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tee build.log
-
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS="${{ inputs.fork_people_only && 'FORK_PEOPLE_ONLY' || '' }}" build | tee build.log
       - name: Ad-hoc sign and package IPA
+        if: ${{ !inputs.validate_only }}
         run: |
           set -euo pipefail
           APP=build/Build/Products/Release-iphoneos/RepoPocket.app
           test -d "$APP"
+          if /usr/libexec/PlistBuddy -c 'Print :CADisableMinimumFrameDurationOnPhone' "$APP/Info.plist" >/dev/null 2>&1; then
+            echo 'Unexpected high refresh-rate opt-in in packaged app'
+            exit 1
+          fi
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0.6"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "13"
+          test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.0.6"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
+          codesign --display --entitlements :- "$EXT"
           codesign --force --sign - --entitlements Entitlements.plist "$APP"
           codesign --verify --deep --strict "$APP"
+          codesign --display --entitlements :- "$APP"
           mkdir -p dist/Payload
           cp -R "$APP" dist/Payload/
           cd dist
@@ -72,11 +194,72 @@ jobs:
           codesign --verify --deep --strict verify/Payload/RepoPocket.app
           shasum -a 256 RepoPocket.ipa > RepoPocket.ipa.sha256
           shasum -a 256 -c RepoPocket.ipa.sha256
-
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.validate_only }}
         with:
           name: RepoPocket
           path: |
             dist/RepoPocket.ipa
             dist/RepoPocket.ipa.sha256
           retention-days: 30
+      - name: Package optional update probe
+        if: ${{ inputs.build_update_probe && !inputs.validate_only }}
+        run: |
+          set -euo pipefail
+          APP=probe/Payload/RepoPocket.app
+          mkdir -p probe/Payload
+          cp -R build/Build/Products/Release-iphoneos/RepoPocket.app "$APP"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.0.3-rc.1' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 4' "$APP/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "4"
+          EXT="$APP/PlugIns/RepoPocketShare.appex"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.0.3-rc.1' "$EXT/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 4' "$EXT/Info.plist"
+          codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
+          codesign --force --sign - --entitlements Entitlements.plist "$APP"
+          codesign --verify --deep --strict "$APP"
+          cd probe
+          zip -qry RepoPocket-1.0.3-rc.1.ipa Payload
+          unzip -t RepoPocket-1.0.3-rc.1.ipa
+          mkdir verify
+          unzip -q RepoPocket-1.0.3-rc.1.ipa -d verify
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' verify/Payload/RepoPocket.app/Info.plist)" = "1.0.3-rc.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' verify/Payload/RepoPocket.app/Info.plist)" = "4"
+          codesign --verify --deep --strict verify/Payload/RepoPocket.app
+          shasum -a 256 RepoPocket-1.0.3-rc.1.ipa > RepoPocket-1.0.3-rc.1.ipa.sha256
+          shasum -a 256 -c RepoPocket-1.0.3-rc.1.ipa.sha256
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.build_update_probe && !inputs.validate_only }}
+        with:
+          name: RepoPocket-update-probe
+          path: |
+            probe/RepoPocket-1.0.3-rc.1.ipa
+            probe/RepoPocket-1.0.3-rc.1.ipa.sha256
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Build simulator Debug app
+        if: ${{ inputs.style_preview }}
+        run: |
+          set -o pipefail
+          bash Scripts/build_native_git.sh iphonesimulator
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+      - name: Render fixed-data account and repository screens
+        if: ${{ inputs.style_preview }}
+        run: bash Scripts/run_style_preview.sh
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && inputs.style_preview }}
+        with:
+          name: simulator-style-preview
+          path: |
+            screenshots/*.png
+            screenshots/*.mp4
+            local-git-recording.log
+            preview-build.log
+            app-preview.log
+            style-tests.log
+            style-tests.xcresult
