@@ -18,10 +18,11 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Generate Project
+      - name: Generate Project and List Schemes
         run: |
           cd source_code
           xcodegen generate
+          echo "====== 🎯 可用的 Schemes ======"
           xcodebuild -list
 
       - name: Build App
