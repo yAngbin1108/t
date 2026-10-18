@@ -1,0 +1,52 @@
+name: Diagnose Compile Errors
+on:
+  workflow_dispatch:
+jobs:
+  diagnose:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+      - name: Unpack source archive
+        run: |
+          set -euo pipefail
+          unzip -q -o RepoPocket-repo-root.zip
+          test -f project.yml
+
+      - name: Prepare native Git libraries
+        run: |
+          bash Scripts/build_native_git.sh macosx
+          bash Scripts/build_native_git.sh iphoneos
+
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Compile and dump every error
+        run: |
+          set +e
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build \
+            > compile.log 2>&1
+          echo "=== FAILING LINES (error:) ==="
+          grep -n "error:" compile.log | head -60
+          echo ""
+          echo "=== STORE DIAGNOSTICS ==="
+          grep -n "StoreInbox\|ShareInboxStore\|ShareInboxDiagnostics" compile.log | head -40
+          echo ""
+          echo "=== LAST 120 LINES ==="
+          tail -120 compile.log
+
+      - name: Upload full log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-log
+          path: compile.log
+          retention-days: 7
