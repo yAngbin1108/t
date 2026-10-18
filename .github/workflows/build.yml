@@ -1,31 +1,82 @@
-name: Build RepoPocket
-
+name: Build RepoPocket IPA
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
-
+  push:
+    branches: [ main ]
+    paths:
+      - 'RepoPocket-repo-root.zip'
+permissions:
+  contents: read
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Unzip Source
-        run: unzip -q RepoPocket-repo-root.zip -d source_code
+      - name: Select Xcode 15.4 (project targets xcodegen xcode15_3, iOS 16)
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Project and List Schemes
+      - name: Unpack source archive into repository root
         run: |
-          cd source_code
+          set -euo pipefail
+          test -f RepoPocket-repo-root.zip
+          unzip -q -o RepoPocket-repo-root.zip
+          test -f project.yml
+          test -f Scripts/build_native_git.sh
+          test -d RepoPocket
+          echo "--- unpacked ---"
+          ls
+
+      - name: Cache native Git libraries
+        uses: actions/cache@v4
+        with:
+          path: NativeBuild
+          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
+
+      - name: Prepare native Git libraries
+        run: |
+          bash Scripts/build_native_git.sh macosx
+          bash Scripts/build_native_git.sh iphoneos
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
           xcodegen generate
-          echo "====== 🎯 可用的 Schemes ======"
-          xcodebuild -list
 
-      - name: Build App
+      - name: Compile iOS app
         run: |
-          cd source_code
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO build
+          set -o pipefail
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tee build.log
+
+      - name: Ad-hoc sign and package IPA
+        run: |
+          set -euo pipefail
+          APP=build/Build/Products/Release-iphoneos/RepoPocket.app
+          test -d "$APP"
+          EXT="$APP/PlugIns/RepoPocketShare.appex"
+          test -d "$EXT"
+          codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
+          codesign --verify --strict "$EXT"
+          codesign --force --sign - --entitlements Entitlements.plist "$APP"
+          codesign --verify --deep --strict "$APP"
+          mkdir -p dist/Payload
+          cp -R "$APP" dist/Payload/
+          cd dist
+          zip -qry RepoPocket.ipa Payload
+          unzip -t RepoPocket.ipa
+          mkdir verify
+          unzip -q RepoPocket.ipa -d verify
+          codesign --verify --deep --strict verify/Payload/RepoPocket.app
+          shasum -a 256 RepoPocket.ipa > RepoPocket.ipa.sha256
+          shasum -a 256 -c RepoPocket.ipa.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RepoPocket
+          path: |
+            dist/RepoPocket.ipa
+            dist/RepoPocket.ipa.sha256
+          retention-days: 30
